@@ -10,7 +10,7 @@
 
 **Professional AI Research Assistant with LangChain, RAG & Vector Database**
 
-[Live Demo](#) • [Report Bug](https://github.com/KanavChauhan23/research-gpt/issues) • [Request Feature](https://github.com/KanavChauhan23/research-gpt/issues)
+[Live Demo](https://ai-researchgpt.streamlit.app/) • [Report Bug](https://github.com/KanavChauhan23/research-gpt/issues) • [Request Feature](https://github.com/KanavChauhan23/research-gpt/issues)
 
 *Multi-Source Intelligence • RAG Architecture • Production-Ready*
 
@@ -105,7 +105,7 @@ with Citations   Vector Store
 
 ## 🚀 Live Demo
 
-**Try it now:** [YOUR-STREAMLIT-URL](#)
+**Try it now:** [Link](https://ai-researchgpt.streamlit.app/)
 
 ### Example Queries
 
