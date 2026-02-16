@@ -1,7 +1,21 @@
+"""
+ResearchGPT - Professional AI Research Assistant
+Built with LangChain, RAG Architecture, and Vector Database
+
+Author: Kanav Chauhan
+Tech: LangChain, Groq, FAISS, RAG
+"""
+
 import streamlit as st
-from groq import Groq
+from langchain_groq import ChatGroq
+from langchain.prompts import PromptTemplate  
+from langchain.chains import LLMChain
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.docstore.document import Document
 from duckduckgo_search import DDGS
 from datetime import datetime
+import json
 
 # Page config
 st.set_page_config(
@@ -15,9 +29,7 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
     
-    * {
-        font-family: 'Poppins', sans-serif;
-    }
+    * { font-family: 'Poppins', sans-serif; }
     
     .main-header {
         font-size: 3.5rem;
@@ -29,209 +41,280 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    .tagline {
-        text-align: center;
-        color: #666;
-        font-size: 1.2rem;
-        margin-bottom: 2rem;
+    .tech-badge {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 0.3rem 0.8rem;
+        border-radius: 15px;
+        font-size: 0.85rem;
+        margin: 0.2rem;
+        display: inline-block;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Session state
 if "research_history" not in st.session_state:
     st.session_state.research_history = []
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = None
 
-# Initialize Groq
+# Initialize LLM
 try:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-except Exception as e:
-    st.error("⚠️ GROQ_API_KEY not found! Add it in Streamlit Secrets.")
+    llm = ChatGroq(
+        api_key=st.secrets["GROQ_API_KEY"],
+        model="llama-3.3-70b-versatile",
+        temperature=0.7,
+        max_tokens=3000
+    )
+except:
+    st.error("⚠️ GROQ_API_KEY not found!")
     st.stop()
 
-# Web search function
-def search_web(query):
-    """Search the web using DuckDuckGo"""
+# Embeddings
+@st.cache_resource
+def get_embeddings():
+    return HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={'device': 'cpu'}
+    )
+
+# Web search
+def search_web(query, max_results=5):
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
-            
+            results = list(ddgs.text(query, max_results=max_results))
             if results:
-                formatted_results = []
-                for i, result in enumerate(results, 1):
-                    formatted_results.append(
-                        f"Source {i}:\n"
-                        f"Title: {result.get('title', 'N/A')}\n"
-                        f"Content: {result.get('body', 'N/A')}\n"
-                        f"URL: {result.get('href', 'N/A')}\n"
+                formatted = []
+                for i, r in enumerate(results, 1):
+                    formatted.append(
+                        f"Source {i}:\nTitle: {r.get('title')}\n"
+                        f"Content: {r.get('body')}\nURL: {r.get('href')}\n"
                     )
-                return "\n\n".join(formatted_results)
-            return "No web results found."
+                return "\n\n".join(formatted)
+        return "No results found."
     except Exception as e:
-        return f"Web search temporarily unavailable: {str(e)}"
+        return f"Search error: {str(e)}"
 
-# Generate research report
-def generate_research_report(query, web_results):
-    """Generate comprehensive research report using Groq"""
-    
-    prompt = f"""You are a professional research assistant. Create a comprehensive research report.
+# RAG system
+def search_vector_store(query):
+    try:
+        if st.session_state.vector_store:
+            docs = st.session_state.vector_store.similarity_search(query, k=3)
+            if docs:
+                results = []
+                for i, doc in enumerate(docs, 1):
+                    meta = doc.metadata
+                    results.append(
+                        f"Past Research {i}:\nQuery: {meta.get('query')}\n"
+                        f"Date: {meta.get('timestamp')}\n"
+                        f"Content: {doc.page_content[:200]}...\n"
+                    )
+                return "\n\n".join(results)
+        return "Knowledge base empty."
+    except:
+        return "KB search unavailable."
 
-Research Query: {query}
+def add_to_vector_store(texts, metadatas):
+    try:
+        embeddings = get_embeddings()
+        docs = [Document(page_content=t, metadata=m) for t, m in zip(texts, metadatas)]
+        
+        if st.session_state.vector_store is None:
+            st.session_state.vector_store = FAISS.from_documents(docs, embeddings)
+        else:
+            st.session_state.vector_store.add_documents(docs)
+        return True
+    except:
+        return False
 
-Web Search Results:
+# LangChain research chain
+def create_research_chain():
+    template = """You are a professional research assistant.
+
+Query: {query}
+
+Web Sources:
 {web_results}
 
-Create a detailed, well-structured research report with these sections:
+Knowledge Base:
+{kb_results}
 
-# Research Report: {query}
+Create a comprehensive research report with:
+
+# {query}
 
 ## Executive Summary
-Brief 2-3 sentence overview of the most important findings.
+2-3 sentences of key findings.
 
 ## Key Findings
-Detailed information organized by themes. Use bullet points for clarity.
+- Current information from web
+- Historical context from knowledge base
+- Cite sources as [Source 1], [Source 2]
 
-## Analysis & Insights
-Your expert analysis of the information gathered.
+## Analysis
+Your expert analysis and insights.
 
 ## Sources
-List the main sources used (mention Source 1, Source 2, etc. from the web results).
+List all sources used.
 
 ## Conclusion
-Summary and key takeaways.
+Key takeaways and recommendations.
 
-Make it professional, well-organized, and cite sources inline using [Source X] format.
-Keep the report comprehensive but concise."""
+Be thorough, cite sources, provide insights."""
 
-    try:
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are an expert research assistant who creates comprehensive, well-cited research reports."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
-            max_tokens=3000
-        )
-        
-        return response.choices[0].message.content
-    
-    except Exception as e:
-        return f"Error generating report: {str(e)}"
+    prompt = PromptTemplate(
+        input_variables=["query", "web_results", "kb_results"],
+        template=template
+    )
+    return LLMChain(llm=llm, prompt=prompt)
 
 # Header
 st.markdown('<h1 class="main-header">🔬 ResearchGPT</h1>', unsafe_allow_html=True)
-st.markdown('<p class="tagline">AI-Powered Research Assistant</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align:center;color:#666;font-size:1.2rem;">Professional AI Research with LangChain & RAG</p>', unsafe_allow_html=True)
+
+st.markdown("""
+<div style='text-align:center;margin-bottom:2rem;'>
+    <span class='tech-badge'>🦜 LangChain</span>
+    <span class='tech-badge'>🧠 RAG</span>
+    <span class='tech-badge'>📊 FAISS</span>
+    <span class='tech-badge'>⚡ Groq</span>
+</div>
+""", unsafe_allow_html=True)
+
 st.markdown("---")
 
 # Main interface
 tab1, tab2, tab3 = st.tabs(["🔍 Research", "📚 History", "ℹ️ About"])
 
 with tab1:
-    st.markdown("### 🎯 What would you like to research?")
+    st.markdown("### 🎯 Enter Your Research Question")
     
     research_query = st.text_area(
         "",
-        placeholder="Example: What are the latest developments in quantum computing?\n\nOr: Explain the impact of AI on healthcare in 2025",
+        placeholder="Example: What are the latest developments in quantum computing?",
         height=100
     )
     
     if st.button("🚀 Start Research", type="primary", use_container_width=True):
         if not research_query.strip():
-            st.warning("⚠️ Please enter a research question!")
+            st.warning("⚠️ Please enter a question!")
         else:
             st.markdown("---")
-            st.markdown("## 🔍 Research in Progress")
-            
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            progress = st.progress(0)
+            status = st.empty()
             
             try:
-                # Step 1: Web search
-                status_text.text("📡 Searching web sources...")
-                progress_bar.progress(30)
-                
+                # Web search
+                status.text("📡 Searching web...")
+                progress.progress(33)
                 web_results = search_web(research_query)
                 
-                progress_bar.progress(60)
-                status_text.text("🤖 AI is analyzing and synthesizing information...")
+                # KB search
+                status.text("💾 Searching knowledge base...")
+                progress.progress(66)
+                kb_results = search_vector_store(research_query)
                 
-                # Step 2: Generate report
-                report = generate_research_report(research_query, web_results)
+                # Generate report
+                status.text("🦜 LangChain processing...")
+                chain = create_research_chain()
+                result = chain.invoke({
+                    "query": research_query,
+                    "web_results": web_results,
+                    "kb_results": kb_results
+                })
+                report = result.get("text", "Error")
                 
-                progress_bar.progress(100)
-                status_text.text("✅ Research complete!")
+                # Save to vector store
+                metadata = {
+                    "query": research_query,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                chunks = [report[i:i+1000] for i in range(0, len(report), 800)]
+                add_to_vector_store(chunks, [metadata] * len(chunks))
                 
-                # Display results
-                st.markdown("---")
-                st.success("✅ Research Complete!")
+                progress.progress(100)
+                status.text("✅ Complete!")
                 
-                st.markdown("## 📊 Research Report")
+                # Display
+                st.success("✅ Research Complete! (LangChain + RAG)")
+                st.markdown("## 📊 Report")
                 st.markdown(report)
                 
-                # Save to history
+                # Save history
                 st.session_state.research_history.append({
                     "query": research_query,
                     "report": report,
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 
-                # Download button
-                st.markdown("---")
-                col1, col2, col3 = st.columns([1, 1, 1])
-                with col2:
-                    st.download_button(
-                        label="📥 Download Report",
-                        data=report,
-                        file_name=f"research_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                        mime="text/plain",
-                        use_container_width=True
-                    )
+                # Download
+                st.download_button(
+                    "📥 Download Report",
+                    data=report,
+                    file_name=f"research_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    use_container_width=True
+                )
                 
             except Exception as e:
-                st.error(f"❌ Research error: {str(e)}")
-            
+                st.error(f"❌ Error: {str(e)}")
             finally:
-                progress_bar.empty()
-                status_text.empty()
+                progress.empty()
+                status.empty()
 
 with tab2:
     st.markdown("### 📚 Research History")
     
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Research", len(st.session_state.research_history))
+    with col2:
+        kb_count = 0
+        if st.session_state.vector_store:
+            try:
+                kb_count = st.session_state.vector_store.index.ntotal
+            except:
+                pass
+        st.metric("KB Vectors", kb_count)
+    
+    st.markdown("---")
+    
     if st.session_state.research_history:
-        for idx, research in enumerate(reversed(st.session_state.research_history)):
-            with st.expander(f"🔍 {research['query'][:80]}... - {research['timestamp']}"):
-                st.markdown(research['report'])
-                
+        for idx, r in enumerate(reversed(st.session_state.research_history)):
+            with st.expander(f"🔍 {r['query'][:70]}... - {r['timestamp']}"):
+                st.markdown(r['report'])
                 st.download_button(
-                    label="📥 Download",
-                    data=research['report'],
+                    "📥 Download",
+                    data=r['report'],
                     file_name=f"research_{idx}.txt",
-                    key=f"download_{idx}"
+                    key=f"dl_{idx}"
                 )
         
-        if st.button("🗑️ Clear History", type="secondary"):
+        if st.button("🗑️ Clear History"):
             st.session_state.research_history = []
             st.rerun()
     else:
-        st.info("No research history yet.")
+        st.info("No history yet.")
 
 with tab3:
-    st.markdown("### 🔬 About ResearchGPT")
+    st.markdown("### 🏗️ Architecture")
     
     st.markdown("""
-    **ResearchGPT** is an AI-powered research assistant.
+    **🦜 LangChain Integration**
+    - LLMChain for processing
+    - PromptTemplate for structure
+    - ChatGroq backend
     
-    **Features:**
-    - 🌐 Multi-source web search
-    - 🤖 AI synthesis
-    - 📊 Professional reports
-    - 📥 Export functionality
+    **📊 RAG Architecture**
+    - Retrieval Augmented Generation
+    - FAISS vector database
+    - Semantic search
+    - Knowledge retention
     
-    **Technology:**
-    - Groq AI (Llama 3.3)
-    - DuckDuckGo Search
-    - Streamlit
+    **🔍 Multi-Source**
+    - Web search (current info)
+    - Knowledge base (past research)
+    - AI synthesis
     """)
 
 # Sidebar
@@ -239,18 +322,17 @@ with st.sidebar:
     st.markdown("### 🔬 ResearchGPT")
     st.markdown("**Status:** 🟢 Active")
     st.markdown("---")
-    st.metric("Research Conducted", len(st.session_state.research_history))
+    st.metric("Queries", len(st.session_state.research_history))
 
 # Footer
 st.markdown("---")
-
-col1, col2, col3 = st.columns([1, 1, 1])
+col1, col2, col3 = st.columns([1,1,1])
 with col2:
     st.link_button(
-        "🔗 Connect on LinkedIn",
+        "🔗 LinkedIn",
         "https://linkedin.com/in/kanavchauhan23",
         use_container_width=True,
         type="primary"
     )
 
-st.markdown("<h4 style='text-align: center;'>Built with ❤️ by Kanav Chauhan</h4>", unsafe_allow_html=True)
+st.markdown("<h4 style='text-align:center;'>Built with ❤️ by Kanav Chauhan</h4>", unsafe_allow_html=True)
