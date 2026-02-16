@@ -2,11 +2,30 @@ import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from datetime import datetime
+
+# Text splitter class (manual implementation to avoid import issues)
+class SimpleTextSplitter:
+    def __init__(self, chunk_size=1000, chunk_overlap=200):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+    
+    def split_text(self, text):
+        """Simple text splitting"""
+        chunks = []
+        start = 0
+        text_len = len(text)
+        
+        while start < text_len:
+            end = start + self.chunk_size
+            chunk = text[start:end]
+            chunks.append(chunk)
+            start = end - self.chunk_overlap
+        
+        return chunks
 
 # Page config
 st.set_page_config(
@@ -164,7 +183,7 @@ def save_to_knowledge_base(query, report):
                 "type": "research_report"
             }
             
-            text_splitter = RecursiveCharacterTextSplitter(
+            text_splitter = SimpleTextSplitter(
                 chunk_size=1000,
                 chunk_overlap=200
             )
