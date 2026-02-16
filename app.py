@@ -1,5 +1,6 @@
 import streamlit as st
-from langchain.agents import initialize_agent, Tool, AgentType
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain.tools import Tool
 from langchain.memory import ConversationBufferMemory
 from langchain_groq import ChatGroq
 from langchain_community.vectorstores import Chroma
@@ -142,22 +143,48 @@ def create_research_agent():
     """Create LangChain agent"""
     tools = setup_tools()
     
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
+    # Create a simple React prompt
+    prompt = PromptTemplate.from_template("""
+You are a helpful research assistant. You have access to the following tools:
+
+{tools}
+
+Tool Names: {tool_names}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: {input}
+Thought: {agent_scratchpad}
+""")
+    
+    # Create agent
+    agent = create_react_agent(
+        llm=llm,
+        tools=tools,
+        prompt=prompt
     )
     
-    agent = initialize_agent(
+    # Create executor
+    agent_executor = AgentExecutor(
+        agent=agent,
         tools=tools,
-        llm=llm,
-        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-        memory=memory,
         verbose=True,
         max_iterations=5,
-        early_stopping_method="generate"
+        handle_parsing_errors=True
     )
     
-    return agent
+    return agent_executor
 
 # Report generation
 def generate_research_report(query, findings):
@@ -276,16 +303,18 @@ with tab1:
                 progress_bar.progress(20)
                 
                 # Run agent
-                result = agent.run(
-                    f"Research this topic comprehensively: {research_query}\n\n"
-                    f"Provide detailed findings with sources."
-                )
+                result = agent.invoke({
+                    "input": f"Research this topic comprehensively: {research_query}\n\nProvide detailed findings with sources."
+                })
+                
+                # Extract output
+                findings = result.get("output", str(result))
                 
                 progress_bar.progress(60)
                 status_text.text("📝 Generating comprehensive report...")
                 
                 # Generate report
-                report = generate_research_report(research_query, result)
+                report = generate_research_report(research_query, findings)
                 
                 progress_bar.progress(80)
                 status_text.text("💾 Saving to knowledge base...")
