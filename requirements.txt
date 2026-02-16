@@ -1,11 +1,7 @@
 streamlit
-langchain>=0.1.0
 langchain-groq
 langchain-community
 langchain-core
 chromadb
 sentence-transformers
 duckduckgo-search
-pypdf2
-python-docx
-tiktoken
