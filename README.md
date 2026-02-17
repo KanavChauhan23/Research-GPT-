@@ -34,6 +34,28 @@
 
 ---
 
+## 📸 Screenshots
+
+### Home Interface
+![Home Interface](screenshots/front.png)
+*Modern and intuitive home interface designed for seamless user interaction and quick access to core features.*
+
+### Research report Output
+![Plan Output](screenshots/research.png)
+*Detailed research report output displaying structured insights, analysis, and well-organized information.*
+
+### History Info
+![AI Prompt](screenshots/history.png)
+*Comprehensive history section showcasing previously generated reports and user activity records.*
+
+### About Info
+![AI Prompt](screenshots/about.png)
+*Informative about section providing project details, purpose, and background information.*
+
+> **Note:** Add actual screenshots to a `/screenshots` folder in your repo
+
+---
+
 ## ✨ Key Features
 
 ### 🦜 LangChain Integration
